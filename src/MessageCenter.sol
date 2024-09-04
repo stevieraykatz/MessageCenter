@@ -3,11 +3,13 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
+import {BasefriendsHelper} from "./BasefriendsHelper.sol";
+
 /**
  * @title MessageCenter
  * @dev A smart contract for managing messages with user authorizations and oracle delivery confirmations
  */
-contract MessageCenter {
+contract MessageCenter is BasefriendsHelper {
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -24,7 +26,7 @@ contract MessageCenter {
         uint256 timestamp;
         MessageStatus status;
         address recipient;
-        bool localAuth;
+        bool externalAuth;
     }
 
     struct Authorization {
@@ -74,9 +76,7 @@ contract MessageCenter {
         _;
     }
 
-    constructor(address registry) {
-
-    }
+    constructor(address registry, address basefriends) BasefriendsHelper(registry, basefriends) {}
 
     /**
      * @dev Grants authorization to a sender and its associated oracle to send messages to the user
@@ -139,7 +139,7 @@ contract MessageCenter {
                 timestamp: block.timestamp,
                 status: MessageStatus.Sent,
                 recipient: recipient,
-                localAuth: externalAuth
+                externalAuth: externalAuth
             });
 
             userMessages[recipient].add(messageId);
@@ -150,18 +150,18 @@ contract MessageCenter {
         }
     }
 
-    function _sendMessageAuth(address recipient) internal returns (bool externalAuth) {
+    function _sendMessageAuth(address recipient) internal view returns (bool externalAuth) {
             if (authorizations[recipient][msg.sender].isAuthorized) {
-                return true;
-            } else if(_getBasefriendsAuth(recipient)) {
                 return false;
+            } else if(_getBasefriendsAuth(recipient)) {
+                return true;
             } else {
                 revert NotAuthorizedToSend(msg.sender, recipient);
             }
     }
 
-    function _getBasefriendsAuth(address recipient) internal returns (bool) {
-
+    function _getBasefriendsAuth(address recipient) internal view returns (bool) {
+        return checkAddrIsFollowed(recipient, msg.sender);
     }
 
     /**

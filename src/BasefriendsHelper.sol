@@ -18,14 +18,27 @@ contract BasefriendsHelper {
         basefriends = IBasefriends(basefriends_);
     }
 
-    function getFollowersFromAddress(address addr) public view returns (bool) {
-        (bool revSuccess, string memory name) = getNameFromAddress(addr);
-        if (!revSuccess) return false;
-        (bool fwdSuccess, address fwdAddr) = getAddressFromName(name);
-        if (!fwdSuccess) return false;
-        if(fwdAddr != addr) return false;
+    function checkAddrIsFollowed(address target, address query) public view returns (bool) {
+        (bool targetResolved, bytes32[] memory follows) = getFollowersFromAddress(target);
+        if(!targetResolved) return false;
 
-        basefriends.getFollows(_getNodeFromName(name));
+        (bool queryResolved, string memory name) = getNameWithFwdResCheck(query);
+        if(!queryResolved) return false;
+
+        bytes32 queryNode = _getNodeFromName(name);
+        for(uint256 i; i < follows.length; i++) {
+            if(queryNode == follows[i]) {
+                return true;
+            }
+        }
+        return false;
+    } 
+
+    function getFollowersFromAddress(address addr) public view returns (bool, bytes32[] memory follows) {
+        (bool success, string memory name) = getNameWithFwdResCheck(addr);
+        if(!success) return (false, follows);
+        follows = basefriends.getFollowNodes(_getNodeFromName(name));
+        return (true, follows);
     }
 
     function getNameFromAddress(address addr) public view returns (bool, string memory) {
@@ -54,6 +67,21 @@ contract BasefriendsHelper {
 
         return (true, addr);
     }
+
+    function getNodeFromAddr(address addr) public view returns (bool, bytes32) {
+        (bool success, string memory name) = getNameWithFwdResCheck(addr);
+        if(!success) return (false, bytes32(0));
+        return (success, _getNodeFromName(name));
+    }
+
+    function getNameWithFwdResCheck(address addr) public view returns (bool success, string memory) {
+        (bool revSuccess, string memory name) = getNameFromAddress(addr);
+        if (!revSuccess) return (false, "");
+        (bool fwdSuccess, address fwdAddr) = getAddressFromName(name);
+        if (!fwdSuccess) return (false, "");
+        if(fwdAddr != addr) return (false, "");
+        return (true, name);
+    } 
 
     function _getNodeFromName(string memory name) internal view returns (bytes32) {
         bytes32 label = keccak256(bytes(name));
