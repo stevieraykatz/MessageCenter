@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /**
  * @title MessageCenter
  * @dev A smart contract for managing messages with user authorizations and oracle delivery confirmations
  */
-contract MessageCenter is ReentrancyGuard {
+contract MessageCenter {
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -32,17 +31,6 @@ contract MessageCenter is ReentrancyGuard {
         address oracle;
         bool isAuthorized;
         uint256 messageCount;
-        bytes32 encryptedEmail;
-        bytes32 encryptedPhone;
-    }
-
-    struct AuthorizationInfo {
-        address sender;
-        address oracle;
-        bool isAuthorized;
-        uint256 messageCount;
-        bytes32 encryptedEmail;
-        bytes32 encryptedPhone;
     }
 
     struct SenderAuthorizationInfo {
@@ -51,42 +39,39 @@ contract MessageCenter is ReentrancyGuard {
         uint256 messageCount;
     }
 
-    mapping(uint256 => Message) private messages;
-    mapping(address => mapping(address => Authorization))
-        private authorizations;
-    mapping(address => uint256) private userNonce;
-    mapping(address => EnumerableSet.UintSet) private userMessages;
-    mapping(address => EnumerableSet.UintSet) private oracleMessages;
-    mapping(address => EnumerableSet.AddressSet) private userAuthorizedSenders;
-    mapping(address => EnumerableSet.AddressSet) private senderAuthorizedUsers;
-
     uint256 private globalNonce;
-    uint256 private constant PRIME1 = 2971215073;
-    uint256 private constant PRIME2 = 433494437;
+    mapping(uint256 messageId => Message message) private messages;
+    mapping(address user => mapping(address sender => Authorization auth)) private authorizations;
+    mapping(address sender => EnumerableSet.UintSet messageIds) private userMessages;
+    mapping(address oracle => EnumerableSet.UintSet messageIds) private oracleMessages;
+    mapping(address user => EnumerableSet.AddressSet senders) private userAuthorizedSenders;
+    mapping(address sender => EnumerableSet.AddressSet users) private senderAuthorizedUsers;
 
-    event AuthorizationGranted(
-        address indexed user,
-        address indexed sender,
-        address indexed oracle
-    );
-    event AuthorizationRevoked(
-        address indexed user,
-        address indexed sender,
-        address indexed oracle
-    );
-    event MessageSent(
-        address indexed sender,
-        address indexed recipient,
-        uint256 indexed messageId
-    );
+
+    event AuthorizationGranted(address indexed user, address indexed sender, address indexed oracle);
+    event AuthorizationRevoked(address indexed user, address indexed sender, address indexed oracle);
+    event MessageSent(address indexed sender, address indexed recipient, uint256 indexed messageId);
     event MessageDelivered(uint256 indexed messageId);
+
+    error AuthorizationAlreadyGranted();
+    error AuthorizationNotFound();
+    error InvalidMessageId();
+    error MessageAlreadyDelivered();
+    error NotAuthorizedToSend(address sender, address recipient);
+    error NoZeroAddress();
+    error OnlyAuthorizedOracle();
+    error UnauthorizedOracle();
+
 
     modifier onlyAuthorizedOracle(uint256 _messageId) {
         Message storage message = messages[_messageId];
-        Authorization storage auth = authorizations[message.recipient][
-            message.sender
-        ];
-        require(auth.oracle == msg.sender, "Not an authorized oracle");
+        Authorization storage auth = authorizations[message.recipient][message.sender];
+        if(auth.oracle != msg.sender) revert OnlyAuthorizedOracle();
+        _;
+    }
+
+    modifier noZeroAddress(address sender, address oracle) {
+        if(sender == address(0) || oracle == address(0)) revert NoZeroAddress();
         _;
     }
 
@@ -94,74 +79,29 @@ contract MessageCenter is ReentrancyGuard {
      * @dev Grants authorization to a sender and its associated oracle to send messages to the user
      * @param _sender Address of the sender
      * @param _oracle Address of the oracle
-     * @param _email Email of the user
-     * @param _phone Phone number of the user
      */
-    function grantAuthorization(
-        address _sender,
-        address _oracle,
-        string calldata _email,
-        string calldata _phone
-    ) external {
-        require(
-            _sender != address(0) && _oracle != address(0),
-            "Invalid addresses"
-        );
-        require(
-            !authorizations[msg.sender][_sender].isAuthorized,
-            "Authorization already granted"
-        );
-
-        uint256 currentNonce = userNonce[msg.sender]++;
-        bytes32 encryptedEmail = keccak256(
-            abi.encodePacked(
-                _email,
-                msg.sender,
-                currentNonce,
-                block.timestamp,
-                blockhash(block.number - 1)
-            )
-        );
-        bytes32 encryptedPhone = keccak256(
-            abi.encodePacked(
-                _phone,
-                msg.sender,
-                currentNonce,
-                block.timestamp,
-                blockhash(block.number - 1)
-            )
-        );
+    function grantAuthorization(address _sender, address _oracle)
+        external noZeroAddress(_sender, _oracle)
+    {
+        if(authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationAlreadyGranted();
 
         authorizations[msg.sender][_sender] = Authorization({
             sender: _sender,
             oracle: _oracle,
             isAuthorized: true,
-            messageCount: 0,
-            encryptedEmail: encryptedEmail,
-            encryptedPhone: encryptedPhone
+            messageCount: 0
         });
-
-        require(
-            userAuthorizedSenders[msg.sender].add(_sender),
-            "Failed to add sender to user's authorized list"
-        );
-        require(
-            senderAuthorizedUsers[_sender].add(msg.sender),
-            "Failed to add user to sender's authorized list"
-        );
 
         emit AuthorizationGranted(msg.sender, _sender, _oracle);
     }
+
 
     /**
      * @dev Revokes authorization from a sender
      * @param _sender Address of the sender
      */
     function revokeAuthorization(address _sender) external {
-        require(
-            authorizations[msg.sender][_sender].isAuthorized,
-            "Authorization not found"
-        );
+        if(!authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationNotFound();
         address oracle = authorizations[msg.sender][_sender].oracle;
         delete authorizations[msg.sender][_sender];
         userAuthorizedSenders[msg.sender].remove(_sender);
@@ -175,27 +115,16 @@ contract MessageCenter is ReentrancyGuard {
      * @param _recipient Address of the message recipient
      * @return A pseudo-random uint256 ID
      */
-    function generateMessageId(
-        address _sender,
-        address _recipient
-    ) private returns (uint256) {
+    function generateMessageId(address _sender, address _recipient) private returns (uint256) {
         globalNonce++;
 
-        return
-            uint256(
-                keccak256(
-                    abi.encodePacked(
-                        block.timestamp,
-                        block.prevrandao,
-                        _sender,
-                        _recipient,
-                        globalNonce,
-                        PRIME1,
-                        PRIME2
-                    )
-                )
-            );
+        return uint256(
+            keccak256(
+                abi.encodePacked(block.timestamp, block.prevrandao, _sender, _recipient, globalNonce)
+            )
+        );
     }
+
 
     /**
      * @dev Sends messages to multiple recipients
@@ -203,17 +132,10 @@ contract MessageCenter is ReentrancyGuard {
      * @param _body Message body
      * @param _subject Message subject
      */
-    function sendMessage(
-        address[] calldata _recipients,
-        string calldata _body,
-        string calldata _subject
-    ) external nonReentrant {
-        for (uint i = 0; i < _recipients.length; i++) {
+    function sendMessage(address[] calldata _recipients, string calldata _body, string calldata _subject) external {
+        for (uint256 i = 0; i < _recipients.length; i++) {
             address recipient = _recipients[i];
-            require(
-                authorizations[recipient][msg.sender].isAuthorized,
-                "Not authorized to send messages to this user"
-            );
+            if(!authorizations[recipient][msg.sender].isAuthorized) revert NotAuthorizedToSend(msg.sender, recipient);
 
             uint256 messageId = generateMessageId(msg.sender, recipient);
             messages[messageId] = Message({
@@ -227,9 +149,7 @@ contract MessageCenter is ReentrancyGuard {
             });
 
             userMessages[recipient].add(messageId);
-            oracleMessages[authorizations[recipient][msg.sender].oracle].add(
-                messageId
-            );
+            oracleMessages[authorizations[recipient][msg.sender].oracle].add(messageId);
             authorizations[recipient][msg.sender].messageCount++;
 
             emit MessageSent(msg.sender, recipient, messageId);
@@ -241,18 +161,12 @@ contract MessageCenter is ReentrancyGuard {
      * @param _messageId ID of the message
      */
     function markMessageAsDelivered(uint256 _messageId) external {
-        require(messages[_messageId].id != 0, "Message does not exist");
-        require(
-            messages[_messageId].status == MessageStatus.Sent,
-            "Message already delivered"
-        );
+        if(messages[_messageId].id == 0) revert InvalidMessageId();
+        if(messages[_messageId].status != MessageStatus.Sent) revert MessageAlreadyDelivered();
 
         address recipient = messages[_messageId].recipient;
         address sender = messages[_messageId].sender;
-        require(
-            authorizations[recipient][sender].oracle == msg.sender,
-            "Not an authorized oracle"
-        );
+        if(authorizations[recipient][sender].oracle != msg.sender) revert UnauthorizedOracle();
 
         messages[_messageId].status = MessageStatus.Delivered;
         emit MessageDelivered(_messageId);
@@ -264,10 +178,7 @@ contract MessageCenter is ReentrancyGuard {
      * @param _sender Address of the sender
      * @return Authorization struct
      */
-    function getAuthorization(
-        address _user,
-        address _sender
-    ) external view returns (Authorization memory) {
+    function getAuthorization(address _user, address _sender) external view returns (Authorization memory) {
         return authorizations[_user][_sender];
     }
 
@@ -290,25 +201,19 @@ contract MessageCenter is ReentrancyGuard {
 
     /**
      * @dev Retrieves all authorizations for the calling user
-     * @return authsInfo An array of AuthorizationInfo structs containing all authorizations for the calling user
+     * @return authsInfo An array of Authorization structs containing all authorizations for the calling user
      */
-    function getUserAuthorizations()
-        external
-        view
-        returns (AuthorizationInfo[] memory authsInfo)
-    {
+    function getUserAuthorizations() external view returns (Authorization[] memory authsInfo) {
         address[] memory senders = userAuthorizedSenders[msg.sender].values();
-        authsInfo = new AuthorizationInfo[](senders.length);
+        authsInfo = new Authorization[](senders.length);
 
-        for (uint i = 0; i < senders.length; i++) {
+        for (uint256 i = 0; i < senders.length; i++) {
             Authorization memory auth = authorizations[msg.sender][senders[i]];
-            authsInfo[i] = AuthorizationInfo({
+            authsInfo[i] = Authorization({
                 sender: auth.sender,
                 oracle: auth.oracle,
                 isAuthorized: auth.isAuthorized,
-                messageCount: auth.messageCount,
-                encryptedEmail: auth.encryptedEmail,
-                encryptedPhone: auth.encryptedPhone
+                messageCount: auth.messageCount
             });
         }
 
@@ -334,32 +239,23 @@ contract MessageCenter is ReentrancyGuard {
 
     /**
      * @dev Retrieves all authorizations where the calling address is the oracle
-     * @return Array of AuthorizationInfo structs
+     * @return Array of Authorization structs
      */
-    function getOracleAuthorizations()
-        external
-        view
-        returns (AuthorizationInfo[] memory)
-    {
-        AuthorizationInfo[] memory authInfos = new AuthorizationInfo[](
-            senderAuthorizedUsers[msg.sender].length()
-        );
+    function getOracleAuthorizations() external view returns (Authorization[] memory) {
+        Authorization[] memory authInfos = new Authorization[](senderAuthorizedUsers[msg.sender].length());
         uint256 index = 0;
 
-        address[] memory authorizedUsers = senderAuthorizedUsers[msg.sender]
-            .values();
+        address[] memory authorizedUsers = senderAuthorizedUsers[msg.sender].values();
         for (uint256 i = 0; i < authorizedUsers.length; i++) {
             address user = authorizedUsers[i];
             Authorization memory auth = authorizations[user][msg.sender];
 
             if (auth.oracle == msg.sender) {
-                authInfos[index] = AuthorizationInfo({
+                authInfos[index] = Authorization({
                     sender: auth.sender,
                     oracle: auth.oracle,
                     isAuthorized: auth.isAuthorized,
-                    messageCount: auth.messageCount,
-                    encryptedEmail: auth.encryptedEmail,
-                    encryptedPhone: auth.encryptedPhone
+                    messageCount: auth.messageCount
                 });
                 index++;
             }
@@ -377,22 +273,12 @@ contract MessageCenter is ReentrancyGuard {
      * @dev Retrieves all authorizations for the calling sender
      * @return Array of SenderAuthorizationInfo structs
      */
-    function getSenderAuthorizations()
-        external
-        view
-        returns (SenderAuthorizationInfo[] memory)
-    {
-        address[] memory authorizedUsers = senderAuthorizedUsers[msg.sender]
-            .values();
-        SenderAuthorizationInfo[]
-            memory authInfos = new SenderAuthorizationInfo[](
-                authorizedUsers.length
-            );
+    function getSenderAuthorizations() external view returns (SenderAuthorizationInfo[] memory) {
+        address[] memory authorizedUsers = senderAuthorizedUsers[msg.sender].values();
+        SenderAuthorizationInfo[] memory authInfos = new SenderAuthorizationInfo[](authorizedUsers.length);
 
-        for (uint i = 0; i < authorizedUsers.length; i++) {
-            Authorization storage auth = authorizations[authorizedUsers[i]][
-                msg.sender
-            ];
+        for (uint256 i = 0; i < authorizedUsers.length; i++) {
+            Authorization storage auth = authorizations[authorizedUsers[i]][msg.sender];
             authInfos[i] = SenderAuthorizationInfo({
                 user: authorizedUsers[i],
                 oracle: auth.oracle,
