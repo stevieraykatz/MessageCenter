@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import "../src/MessageCenter.sol";
+import {MessageCenter} from "src/MessageCenter.sol";
+
+import {MockBasefriends} from "./mocks/MockBaseFriends.sol";
+import {MockRegistry} from "./mocks/MockRegistry.sol";
+import {MockResolver} from "./mocks/MockResolver.sol";
 
 contract MessageCenterTest is Test {
     MessageCenter public messageCenter;
@@ -12,11 +16,17 @@ contract MessageCenterTest is Test {
     address public sender2;
     address public oracle1;
     address public oracle2;
+    MockRegistry public registry;
+    MockBasefriends public basefriends;
+    MockResolver public resolver;
 
     event Debug(string message, address user, address sender);
 
     function setUp() public {
-        messageCenter = new MessageCenter();
+        resolver = new MockResolver();
+        registry = new MockRegistry(address(resolver));
+        basefriends = new MockBasefriends();
+        messageCenter = new MessageCenter(address(registry), address(basefriends));
         user1 = address(0x1);
         user2 = address(0x2);
         sender1 = address(0x3);
@@ -65,21 +75,21 @@ contract MessageCenterTest is Test {
         vm.startPrank(sender1);
         messageCenter.sendMessage(recipients, "Test message", "Subject");
 
-        vm.startPrank(user1);
-        MessageCenter.Message[] memory messages = messageCenter.getUserMessages();
+        MessageCenter.Message[] memory messages = messageCenter.getUserMessages(user1, MessageCenter.AuthorizedBy.Self);
         assertEq(messages.length, 1);
         assertEq(messages[0].sender, sender1);
         assertEq(messages[0].body, "Test message");
         assertEq(messages[0].recipient, user1);
     }
 
-    function testPreventUnauthorizedMessages() public {
+    function testUnauthorizedMessagesAreStoredWithNullAuth() public {
         address[] memory recipients = new address[](1);
         recipients[0] = user1;
 
         vm.prank(sender2);
-        vm.expectRevert(abi.encodeWithSelector(MessageCenter.NotAuthorizedToSend.selector, sender2, user1));
         messageCenter.sendMessage(recipients, "Unauthorized message", "Subject");
+        MessageCenter.Message[] memory messages = messageCenter.getUserMessages(user1, MessageCenter.AuthorizedBy.Null);
+        assertEq(messages.length, 1);
     }
 
     function testMarkMessageAsDelivered() public {
@@ -93,16 +103,14 @@ contract MessageCenterTest is Test {
         messageCenter.sendMessage(recipients, "Test message", "Subject");
 
         // Retrieve the message ID
-        vm.startPrank(user1);
-        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages();
+        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages(user1, MessageCenter.AuthorizedBy.Self);
         require(userMessages.length > 0, "No messages found");
         uint256 messageId = userMessages[0].id;
 
         vm.startPrank(oracle1);
         messageCenter.markMessageAsDelivered(messageId);
 
-        vm.startPrank(user1);
-        MessageCenter.Message[] memory updatedMessages = messageCenter.getUserMessages();
+        MessageCenter.Message[] memory updatedMessages = messageCenter.getUserMessages(user1, MessageCenter.AuthorizedBy.Self);
         assertEq(uint256(updatedMessages[0].status), uint256(MessageCenter.MessageStatus.Delivered));
     }
 
@@ -117,8 +125,7 @@ contract MessageCenterTest is Test {
         messageCenter.sendMessage(recipients, "Test message", "Subject");
 
         // Retrieve the message ID
-        vm.prank(user1);
-        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages();
+        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages(user1, MessageCenter.AuthorizedBy.Self);
         require(userMessages.length > 0, "No messages found");
         uint256 messageId = userMessages[0].id;
 

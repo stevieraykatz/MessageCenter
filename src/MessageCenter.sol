@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {BasefriendsHelper} from "./BasefriendsHelper.sol";
+import {console} from "forge-std/console.sol";
 
 /**
  * @title MessageCenter
@@ -58,7 +59,7 @@ contract MessageCenter is BasefriendsHelper {
 
     event AuthorizationGranted(address indexed user, address indexed sender, address indexed oracle);
     event AuthorizationRevoked(address indexed user, address indexed sender, address indexed oracle);
-    event MessageSent(address indexed sender, address indexed recipient, uint256 indexed messageId);
+    event MessageSent(address indexed sender, address indexed recipient, uint256 indexed messageId, AuthorizedBy authType);
     event MessageDelivered(uint256 indexed messageId);
 
     error AuthorizationAlreadyGranted();
@@ -152,7 +153,7 @@ contract MessageCenter is BasefriendsHelper {
             oracleMessages[authorizations[recipient][msg.sender].oracle].add(messageId);
             authorizations[recipient][msg.sender].messageCount++;
 
-            emit MessageSent(msg.sender, recipient, messageId);
+            emit MessageSent(msg.sender, recipient, messageId, authType);
         }
     }
 
@@ -200,16 +201,21 @@ contract MessageCenter is BasefriendsHelper {
      * @dev Retrieves all Messages received by the calling user
      * @return Array of Message structs
      */
-    function getUserMessages() external view returns (Message[] memory) {
-        EnumerableSet.UintSet storage messageSet = userMessages[msg.sender];
+    function getUserMessages(address user, AuthorizedBy authType) external view returns (Message[] memory) {
+        EnumerableSet.UintSet storage messageSet = userMessages[user];
         uint256 totalMessages = messageSet.length();
         Message[] memory result = new Message[](totalMessages);
-
-        for (uint256 i = 0; i < totalMessages; i++) {
+        uint256 i;
+        for (i = 0; i < totalMessages; i++) {
             uint256 messageId = messageSet.at(i);
-            result[i] = messages[messageId];
+            console.log(messageId);
+            if (messages[messageSet.at(i)].authType == authType) {
+                result[i] = messages[messageId];
+            } 
         }
-
+        assembly {
+            mstore(result, i)
+        }
         return result;
     }
 
