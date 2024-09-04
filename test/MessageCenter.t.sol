@@ -29,8 +29,7 @@ contract MessageCenterTest is Test {
         vm.prank(user1);
         messageCenter.grantAuthorization(sender1, oracle1);
 
-        MessageCenter.Authorization memory auth = messageCenter
-            .getAuthorization(user1, sender1);
+        MessageCenter.Authorization memory auth = messageCenter.getAuthorization(user1, sender1);
         assertEq(auth.sender, sender1);
         assertEq(auth.oracle, oracle1);
         assertTrue(auth.isAuthorized);
@@ -39,24 +38,17 @@ contract MessageCenterTest is Test {
 
     function testRevokeAuthorization() public {
         vm.startPrank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
         messageCenter.revokeAuthorization(sender1);
         vm.stopPrank();
 
-        MessageCenter.Authorization memory auth = messageCenter
-            .getAuthorization(user1, sender1);
+        MessageCenter.Authorization memory auth = messageCenter.getAuthorization(user1, sender1);
         assertFalse(auth.isAuthorized);
     }
 
     function testPreventUnauthorizedRevocation() public {
         vm.prank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
 
         vm.prank(user2);
         vm.expectRevert(MessageCenter.AuthorizationNotFound.selector);
@@ -65,10 +57,7 @@ contract MessageCenterTest is Test {
 
     function testSendMessage() public {
         vm.prank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
 
         address[] memory recipients = new address[](1);
         recipients[0] = user1;
@@ -77,8 +66,7 @@ contract MessageCenterTest is Test {
         messageCenter.sendMessage(recipients, "Test message", "Subject");
 
         vm.startPrank(user1);
-        MessageCenter.Message[] memory messages = messageCenter
-            .getUserMessages();
+        MessageCenter.Message[] memory messages = messageCenter.getUserMessages();
         assertEq(messages.length, 1);
         assertEq(messages[0].sender, sender1);
         assertEq(messages[0].body, "Test message");
@@ -91,19 +79,12 @@ contract MessageCenterTest is Test {
 
         vm.prank(sender2);
         vm.expectRevert(abi.encodeWithSelector(MessageCenter.NotAuthorizedToSend.selector, sender2, user1));
-        messageCenter.sendMessage(
-            recipients,
-            "Unauthorized message",
-            "Subject"
-        );
+        messageCenter.sendMessage(recipients, "Unauthorized message", "Subject");
     }
 
     function testMarkMessageAsDelivered() public {
         vm.prank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
 
         address[] memory recipients = new address[](1);
         recipients[0] = user1;
@@ -113,8 +94,7 @@ contract MessageCenterTest is Test {
 
         // Retrieve the message ID
         vm.startPrank(user1);
-        MessageCenter.Message[] memory userMessages = messageCenter
-            .getUserMessages();
+        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages();
         require(userMessages.length > 0, "No messages found");
         uint256 messageId = userMessages[0].id;
 
@@ -122,20 +102,13 @@ contract MessageCenterTest is Test {
         messageCenter.markMessageAsDelivered(messageId);
 
         vm.startPrank(user1);
-        MessageCenter.Message[] memory updatedMessages = messageCenter
-            .getUserMessages();
-        assertEq(
-            uint(updatedMessages[0].status),
-            uint(MessageCenter.MessageStatus.Delivered)
-        );
+        MessageCenter.Message[] memory updatedMessages = messageCenter.getUserMessages();
+        assertEq(uint256(updatedMessages[0].status), uint256(MessageCenter.MessageStatus.Delivered));
     }
 
     function testPreventUnauthorizedOracleMarkingDelivered() public {
         vm.prank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
 
         address[] memory recipients = new address[](1);
         recipients[0] = user1;
@@ -145,8 +118,7 @@ contract MessageCenterTest is Test {
 
         // Retrieve the message ID
         vm.prank(user1);
-        MessageCenter.Message[] memory userMessages = messageCenter
-            .getUserMessages();
+        MessageCenter.Message[] memory userMessages = messageCenter.getUserMessages();
         require(userMessages.length > 0, "No messages found");
         uint256 messageId = userMessages[0].id;
 
@@ -157,17 +129,10 @@ contract MessageCenterTest is Test {
 
     function testGetUserAuthorizations() public {
         vm.startPrank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
-        messageCenter.grantAuthorization(
-            sender2,
-            oracle2
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
+        messageCenter.grantAuthorization(sender2, oracle2);
 
-        MessageCenter.Authorization[] memory auths = messageCenter
-            .getUserAuthorizations();
+        MessageCenter.Authorization[] memory auths = messageCenter.getUserAuthorizations();
 
         assertEq(auths.length, 2, "Should have 2 authorizations");
 
@@ -184,18 +149,11 @@ contract MessageCenterTest is Test {
 
     function testGetUserAuthorizationsAfterRevoke() public {
         vm.startPrank(user1);
-        messageCenter.grantAuthorization(
-            sender1,
-            oracle1
-        );
-        messageCenter.grantAuthorization(
-            sender2,
-            oracle2
-        );
+        messageCenter.grantAuthorization(sender1, oracle1);
+        messageCenter.grantAuthorization(sender2, oracle2);
         messageCenter.revokeAuthorization(sender1);
 
-        MessageCenter.Authorization[] memory auths = messageCenter
-            .getUserAuthorizations();
+        MessageCenter.Authorization[] memory auths = messageCenter.getUserAuthorizations();
 
         assertEq(auths.length, 1, "Should have 1 authorization after revoke");
 

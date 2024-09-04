@@ -47,7 +47,6 @@ contract MessageCenter {
     mapping(address user => EnumerableSet.AddressSet senders) private userAuthorizedSenders;
     mapping(address sender => EnumerableSet.AddressSet users) private senderAuthorizedUsers;
 
-
     event AuthorizationGranted(address indexed user, address indexed sender, address indexed oracle);
     event AuthorizationRevoked(address indexed user, address indexed sender, address indexed oracle);
     event MessageSent(address indexed sender, address indexed recipient, uint256 indexed messageId);
@@ -62,16 +61,15 @@ contract MessageCenter {
     error OnlyAuthorizedOracle();
     error UnauthorizedOracle();
 
-
     modifier onlyAuthorizedOracle(uint256 _messageId) {
         Message storage message = messages[_messageId];
         Authorization storage auth = authorizations[message.recipient][message.sender];
-        if(auth.oracle != msg.sender) revert UnauthorizedOracle();
+        if (auth.oracle != msg.sender) revert UnauthorizedOracle();
         _;
     }
 
     modifier noZeroAddress(address sender, address oracle) {
-        if(sender == address(0) || oracle == address(0)) revert NoZeroAddress();
+        if (sender == address(0) || oracle == address(0)) revert NoZeroAddress();
         _;
     }
 
@@ -80,29 +78,22 @@ contract MessageCenter {
      * @param _sender Address of the sender
      * @param _oracle Address of the oracle
      */
-    function grantAuthorization(address _sender, address _oracle)
-        external noZeroAddress(_sender, _oracle)
-    {
-        if(authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationAlreadyGranted();
-        
+    function grantAuthorization(address _sender, address _oracle) external noZeroAddress(_sender, _oracle) {
+        if (authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationAlreadyGranted();
+
         userAuthorizedSenders[msg.sender].add(_sender);
-        authorizations[msg.sender][_sender] = Authorization({
-            sender: _sender,
-            oracle: _oracle,
-            isAuthorized: true,
-            messageCount: 0
-        });
+        authorizations[msg.sender][_sender] =
+            Authorization({sender: _sender, oracle: _oracle, isAuthorized: true, messageCount: 0});
 
         emit AuthorizationGranted(msg.sender, _sender, _oracle);
     }
-
 
     /**
      * @dev Revokes authorization from a sender
      * @param _sender Address of the sender
      */
     function revokeAuthorization(address _sender) external {
-        if(!authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationNotFound();
+        if (!authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationNotFound();
         address oracle = authorizations[msg.sender][_sender].oracle;
         delete authorizations[msg.sender][_sender];
         userAuthorizedSenders[msg.sender].remove(_sender);
@@ -119,13 +110,8 @@ contract MessageCenter {
     function generateMessageId(address _sender, address _recipient) private returns (uint256) {
         globalNonce++;
 
-        return uint256(
-            keccak256(
-                abi.encodePacked(block.timestamp, block.prevrandao, _sender, _recipient, globalNonce)
-            )
-        );
+        return uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, _sender, _recipient, globalNonce)));
     }
-
 
     /**
      * @dev Sends messages to multiple recipients
@@ -136,7 +122,7 @@ contract MessageCenter {
     function sendMessage(address[] calldata _recipients, string calldata _body, string calldata _subject) external {
         for (uint256 i = 0; i < _recipients.length; i++) {
             address recipient = _recipients[i];
-            if(!authorizations[recipient][msg.sender].isAuthorized) revert NotAuthorizedToSend(msg.sender, recipient);
+            if (!authorizations[recipient][msg.sender].isAuthorized) revert NotAuthorizedToSend(msg.sender, recipient);
 
             uint256 messageId = generateMessageId(msg.sender, recipient);
             messages[messageId] = Message({
@@ -162,12 +148,12 @@ contract MessageCenter {
      * @param _messageId ID of the message
      */
     function markMessageAsDelivered(uint256 _messageId) external {
-        if(messages[_messageId].id == 0) revert InvalidMessageId();
-        if(messages[_messageId].status != MessageStatus.Sent) revert MessageAlreadyDelivered();
+        if (messages[_messageId].id == 0) revert InvalidMessageId();
+        if (messages[_messageId].status != MessageStatus.Sent) revert MessageAlreadyDelivered();
 
         address recipient = messages[_messageId].recipient;
         address sender = messages[_messageId].sender;
-        if(authorizations[recipient][sender].oracle != msg.sender) revert UnauthorizedOracle();
+        if (authorizations[recipient][sender].oracle != msg.sender) revert UnauthorizedOracle();
 
         messages[_messageId].status = MessageStatus.Delivered;
         emit MessageDelivered(_messageId);
