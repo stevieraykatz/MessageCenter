@@ -66,7 +66,7 @@ contract MessageCenter {
     modifier onlyAuthorizedOracle(uint256 _messageId) {
         Message storage message = messages[_messageId];
         Authorization storage auth = authorizations[message.recipient][message.sender];
-        if(auth.oracle != msg.sender) revert OnlyAuthorizedOracle();
+        if(auth.oracle != msg.sender) revert UnauthorizedOracle();
         _;
     }
 
@@ -84,7 +84,8 @@ contract MessageCenter {
         external noZeroAddress(_sender, _oracle)
     {
         if(authorizations[msg.sender][_sender].isAuthorized) revert AuthorizationAlreadyGranted();
-
+        
+        userAuthorizedSenders[msg.sender].add(_sender);
         authorizations[msg.sender][_sender] = Authorization({
             sender: _sender,
             oracle: _oracle,
