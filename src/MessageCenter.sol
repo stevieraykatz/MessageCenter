@@ -24,6 +24,7 @@ contract MessageCenter {
         uint256 timestamp;
         MessageStatus status;
         address recipient;
+        bool localAuth;
     }
 
     struct Authorization {
@@ -71,6 +72,10 @@ contract MessageCenter {
     modifier noZeroAddress(address sender, address oracle) {
         if (sender == address(0) || oracle == address(0)) revert NoZeroAddress();
         _;
+    }
+
+    constructor(address registry) {
+
     }
 
     /**
@@ -122,7 +127,8 @@ contract MessageCenter {
     function sendMessage(address[] calldata _recipients, string calldata _body, string calldata _subject) external {
         for (uint256 i = 0; i < _recipients.length; i++) {
             address recipient = _recipients[i];
-            if (!authorizations[recipient][msg.sender].isAuthorized) revert NotAuthorizedToSend(msg.sender, recipient);
+
+            bool externalAuth = _sendMessageAuth(recipient);
 
             uint256 messageId = generateMessageId(msg.sender, recipient);
             messages[messageId] = Message({
@@ -132,7 +138,8 @@ contract MessageCenter {
                 body: _body,
                 timestamp: block.timestamp,
                 status: MessageStatus.Sent,
-                recipient: recipient
+                recipient: recipient,
+                localAuth: externalAuth
             });
 
             userMessages[recipient].add(messageId);
@@ -141,6 +148,20 @@ contract MessageCenter {
 
             emit MessageSent(msg.sender, recipient, messageId);
         }
+    }
+
+    function _sendMessageAuth(address recipient) internal returns (bool externalAuth) {
+            if (authorizations[recipient][msg.sender].isAuthorized) {
+                return true;
+            } else if(_getBasefriendsAuth(recipient)) {
+                return false;
+            } else {
+                revert NotAuthorizedToSend(msg.sender, recipient);
+            }
+    }
+
+    function _getBasefriendsAuth(address recipient) internal returns (bool) {
+
     }
 
     /**
