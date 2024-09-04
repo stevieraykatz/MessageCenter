@@ -18,6 +18,12 @@ contract MessageCenter is BasefriendsHelper {
         Delivered
     }
 
+    enum AuthorizedBy {
+        Null,
+        Self,
+        External
+    }
+
     struct Message {
         address sender;
         string subject;
@@ -26,7 +32,7 @@ contract MessageCenter is BasefriendsHelper {
         uint256 timestamp;
         MessageStatus status;
         address recipient;
-        bool externalAuth;
+        AuthorizedBy authType;
     }
 
     struct Authorization {
@@ -128,7 +134,7 @@ contract MessageCenter is BasefriendsHelper {
         for (uint256 i = 0; i < _recipients.length; i++) {
             address recipient = _recipients[i];
 
-            bool externalAuth = _sendMessageAuth(recipient);
+            AuthorizedBy authType = _sendMessageAuth(recipient);
 
             uint256 messageId = generateMessageId(msg.sender, recipient);
             messages[messageId] = Message({
@@ -139,7 +145,7 @@ contract MessageCenter is BasefriendsHelper {
                 timestamp: block.timestamp,
                 status: MessageStatus.Sent,
                 recipient: recipient,
-                externalAuth: externalAuth
+                authType: authType
             });
 
             userMessages[recipient].add(messageId);
@@ -150,13 +156,13 @@ contract MessageCenter is BasefriendsHelper {
         }
     }
 
-    function _sendMessageAuth(address recipient) internal view returns (bool externalAuth) {
+    function _sendMessageAuth(address recipient) internal view returns (AuthorizedBy authType) {
             if (authorizations[recipient][msg.sender].isAuthorized) {
-                return false;
+                return AuthorizedBy.Self;
             } else if(_getBasefriendsAuth(recipient)) {
-                return true;
+                return AuthorizedBy.External;
             } else {
-                revert NotAuthorizedToSend(msg.sender, recipient);
+                return AuthorizedBy.Null;
             }
     }
 
