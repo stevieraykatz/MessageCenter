@@ -7,3 +7,6 @@
 [submodule "lib/basefriends"]
 	path = lib/basefriends
 	url = https://github.com/stevieraykatz/basefriends
+[submodule "lib/basenames"]
+	path = lib/basenames
+	url = https://github.com/base-org/basenames
